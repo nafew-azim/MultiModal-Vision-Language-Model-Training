@@ -171,7 +171,7 @@ This project is licensed under the **Apache License**. See [LICENSE](LICENSE) fo
 * [Hugging Face](https://huggingface.co/) → Transformers, Datasets, Model Hub
 * [Unsloth](https://github.com/unslothai/unsloth) → Optimized VLM training
 * [Kaggle](https://www.kaggle.com/) → SkinCAP captions dataset
-* Google Colab → Development environment
+* [Google Colab](https://colab.research.google.com/)→ Development environment
 
 ---
 
