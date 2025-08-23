@@ -1,0 +1,27 @@
+# Core image and data processing
+numpy>=1.21
+pillow>=9.0
+opencv-python>=4.5
+scikit-image>=0.19
+scipy>=1.7
+
+# Visualization (optional)
+matplotlib>=3.4
+
+# JSON/YAML/TXT parsing
+tqdm>=4.62
+pyyaml>=6.0
+
+# Caption handling and evaluation
+nltk>=3.7
+pycocoevalcap @ git+https://github.com/salaniz/pycocoevalcap
+
+# For loading datasets or building PyTorch-based pipelines
+torch>=1.12
+torchvision>=0.13
+
+# Optional for OCR handling in TextCaps
+easyocr>=1.6
+
+# Optional for structured dataset loading
+pandas>=1.3
