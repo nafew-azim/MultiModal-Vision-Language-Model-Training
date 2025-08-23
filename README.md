@@ -1,14 +1,14 @@
-<img width="1200" height="894" alt="image" src="https://github.com/user-attachments/assets/83e5ea76-e637-4004-aa05-b057f93298a5" /># MultiModal-Vision-Language-Model-Training
+## MultiModal-Vision-Language-Model-Training
 
 This repository contains the code and resources for fine-tuning various **multimodal vision-language models** on medical imaging datasets, specifically for **image captioning tasks**.  
 The project leverages state-of-the-art models to generate accurate and descriptive captions for medical images, with applications in **dermatology (SkinCAP dataset)** and **radiology (ROCOv2 dataset)**.  
 It includes training/evaluation scripts for models such as **PaliGemma, BLIP-2, BLIP, SmolVLM, Qwen-VL, and Florence-2**, optimized with **quantization** and **LoRA (Low-Rank Adaptation)**.
 
-## System Architecture
+---
+## Sample Medical Image Cases
+<img width="1200" height="894" alt="image" src="https://github.com/user-attachments/assets/83e5ea76-e637-4004-aa05-b057f93298a5" />
 
-![Medical Image Captioning Pipeline](https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.nature.com%2Farticles%2Fs41598-023-31223-5&psig=AOvVaw27JlQ0npJq2ooO8PuuilK3&ust=1756054931461000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCIilxMe0oY8DFQAAAAAdAAAAABAE)
-
-*A visual overview of the medical image captioning pipeline—how encoder and attention-based decoder components work together to generate meaningful captions from medical images.*
+*Sample chest X-ray cases showing ground truth findings and predictions from two approaches. Each column (A–D) represents a different patient case, with visual overlays highlighting areas of interest. The table summarizes key observations, including pleural effusion, cardiomegaly, atelectasis, lung opacity, and other clinical findings.*
 
 ---
 
