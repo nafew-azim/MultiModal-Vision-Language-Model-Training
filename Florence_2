@@ -1,0 +1,197 @@
+##############################
+# INSTALL LIBRARIES
+##############################
+!pip install git+https://github.com/huggingface/transformers.git@main
+!pip install -q datasets
+!pip install "kagglehub[pandas-datasets]"
+!pip install rouge-score
+!pip install huggingface_hub datasets
+!pip install bitsandbytes
+!pip install --upgrade datasets
+!pip install peft
+!huggingface-cli login --token TOKEN_HERE
+
+import pandas as pd
+import torch
+import torch.nn as nn
+from torch.optim import Adam
+import nltk
+from rouge_score import rouge_scorer
+from sklearn.metrics import f1_score
+import torch.nn.functional as F
+from transformers import AutoProcessor, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+import time
+import random
+import kagglehub
+from kagglehub import KaggleDatasetAdapter
+from datasets import load_dataset
+from torch.utils.data import Dataset, DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+import warnings
+from nltk.translate.meteor_score import meteor_score
+from peft import get_peft_model, LoraConfig, TaskType
+warnings.filterwarnings("ignore")
+
+nltk.download('wordnet')
+nltk.download('punkt')
+nltk.download('punkt_tab')
+
+# Set device
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Define quantization config
+quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+
+# Load models with quantization and place on cuda:0
+processor_large = AutoProcessor.from_pretrained("microsoft/Florence-2-large", trust_remote_code=True)
+model_large = AutoModelForCausalLM.from_pretrained(
+    "microsoft/Florence-2-large",
+    trust_remote_code=True,
+    quantization_config=quantization_config,
+    device_map={"": 0}  # Entire model on cuda:0
+).to(device)
+
+processor_base = AutoProcessor.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
+model_base = AutoModelForCausalLM.from_pretrained(
+    "microsoft/Florence-2-base",
+    trust_remote_code=True,
+    quantization_config=quantization_config,
+    device_map={"": 0}  # Entire model on cuda:0
+).to(device)
+
+# Load dataset and captions
+dataset = load_dataset("joshuachou/SkinCAP", split="train")
+dataset = dataset.select(range(4000))
+
+# Set the path to the file you'd like to load
+file_path = "skincap_v240715.xlsx"
+
+# Load the latest version
+captions_df = kagglehub.load_dataset(
+    KaggleDatasetAdapter.PANDAS,
+    "nafewazim/skincap-captions",
+    file_path,
+    pandas_kwargs={"header": 1}
+)
+captions_df = captions_df.iloc[:4000]
+caption_dict = dict(zip(captions_df['id'], captions_df['caption_en']))
+dataset = dataset.map(lambda example, idx: {'caption': captions_df.iloc[idx]['caption_en']}, with_indices=True)
+
+# Split dataset
+train_test_split = dataset.train_test_split(test_size=0.2)
+train_dataset = train_test_split['train']
+temp_dataset = train_test_split['test']
+val_test_split = temp_dataset.train_test_split(test_size=0.5)
+val_dataset = val_test_split['train']
+test_dataset = val_test_split['test']
+print(f"Train size: {len(train_dataset)}, Val size: {len(val_dataset)}, Test size: {len(test_dataset)}")
+
+# Custom dataset class
+class ImageCaptioningDataset(Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        image = item["image"].convert("RGB")
+        caption = item["caption"]
+        return image, caption
+
+# Collate function
+def captioning_collate_fn(batch):
+    images, captions = zip(*batch)
+    inputs = processor_tuned(
+        text=["<caption>"] * len(images),
+        images=images,
+        return_tensors="pt",
+        padding=True
+    )
+    labels = processor_tuned.tokenizer(
+        text=captions,
+        return_tensors="pt",
+        padding=True,
+        return_token_type_ids=False
+    ).input_ids
+    return inputs, labels
+
+# Initialize processor and model for tuning
+processor_tuned = AutoProcessor.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
+model_tuned = AutoModelForCausalLM.from_pretrained(
+    "microsoft/Florence-2-base",
+    trust_remote_code=True,
+    quantization_config=quantization_config,
+    device_map={"": 0}  # Entire model on cuda:0
+).to(device)
+
+# Apply Q-LoRA
+config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    target_modules=["query", "key", "value", "dense", "q_proj", "k_proj", "v_proj", "out_proj", "fc1", "fc2"],
+    lora_dropout=0.1,
+    bias="none",
+    task_type=TaskType.SEQ_2_SEQ_LM
+)
+model_tuned = get_peft_model(model_tuned, config)
+
+# Create dataloaders
+train_dataset = ImageCaptioningDataset(train_dataset)
+val_dataset = ImageCaptioningDataset(val_dataset)
+test_dataset = ImageCaptioningDataset(test_dataset)
+train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=4, collate_fn=captioning_collate_fn)
+val_dataloader = DataLoader(val_dataset, shuffle=False, batch_size=4, collate_fn=captioning_collate_fn)
+test_dataloader = DataLoader(test_dataset, shuffle=False, batch_size=4, collate_fn=captioning_collate_fn)
+
+# Training setup
+optimizer = torch.optim.AdamW(model_tuned.parameters(), lr=5e-5)
+scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5)
+model_tuned.to(device)
+
+# Validation and test loss functions
+def compute_val_loss(model, val_dataloader, device):
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for batch in val_dataloader:
+            inputs, labels = batch
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            labels = labels.to(device)
+            inputs["pixel_values"] = inputs["pixel_values"].to(torch.float16)
+            outputs = model(input_ids=inputs["input_ids"], pixel_values=inputs["pixel_values"], labels=labels)
+            loss = outputs.loss
+            total_loss += loss.item()
+    return total_loss / len(val_dataloader)
+
+def compute_test_loss(model, test_dataloader, device):
+    return compute_val_loss(model, test_dataloader, device)
+
+# Training loop
+num_epochs = 30
+for epoch in range(num_epochs):
+    model_tuned.train()
+    for idx, batch in enumerate(train_dataloader):
+        inputs, labels = batch
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        labels = labels.to(device)
+        inputs["pixel_values"] = inputs["pixel_values"].to(torch.float16)
+        outputs = model_tuned(input_ids=inputs["input_ids"], pixel_values=inputs["pixel_values"], labels=labels)
+        loss = outputs.loss
+        print(f"Epoch {epoch}, Batch {idx}, Training Loss: {loss.item()}")
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    val_loss = compute_val_loss(model_tuned, val_dataloader, device)
+    print(f"Epoch {epoch}, Validation Loss: {val_loss}")
+    scheduler.step(val_loss)
+
+# Evaluate on test set
+test_loss = compute_test_loss(model_tuned, test_dataloader, device)
+print(f"Test Loss: {test_loss}")
+
+# Push to the Hub
+model_tuned.push_to_hub("my_finetuned_florence_2_model")
+tokenizer.push_to_hub("my_finetuned_florence_2_model")
