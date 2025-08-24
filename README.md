@@ -181,4 +181,4 @@ This project is licensed under the **Apache License**. See [LICENSE](LICENSE) fo
 
 ---
 
-📩 For questions or issues, open an **[issue](../../issues)** or contact: **[nafew.azim101@gmail.com](mailto:nafewazim101@gmail.com)**
+📩 For questions or issues, open an **[issue](../../issues)** or contact: **[nafew.azim@gmail.com](mailto:nafewazim101@gmail.com)**
